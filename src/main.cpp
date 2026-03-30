@@ -28,8 +28,8 @@
 // 📌 Pin Map:
 //   GPIO 13 ← BTN_THEM (input, internal pull-up, active LOW)
 //   GPIO 15 ← BTN_ME   (input, internal pull-up, active LOW)
-//   GPIO 16 → LED_THEM (output, red LED via resistor)
-//   GPIO 17 → LED_ME   (output, yellow LED via resistor)
+//   GPIO 17 → LED_THEM (output, red LED via resistor)
+//   GPIO 16 → LED_ME   (output, yellow LED via resistor)
 //
 // 🔧 Debouncing:
 //   20ms delay-based debounce on both buttons. Only the press (HIGH→LOW
@@ -44,8 +44,8 @@
 // ---------------------------------------------------------------------------
 const int BTN_THEM = 13;  // 🔴 THEM button input (to GND, internal pullup)
 const int BTN_ME   = 15;  // 🟡 ME button input   (to GND, internal pullup)
-const int LED_THEM = 16;  // 🔴 THEM LED output    (red, through resistor)
-const int LED_ME   = 17;  // 🟡 ME LED output      (yellow, through resistor)
+const int LED_THEM = 17;  // 🔴 THEM LED output    (red, through resistor)
+const int LED_ME   = 16;  // 🟡 ME LED output      (yellow, through resistor)
 
 // ---------------------------------------------------------------------------
 // 🔄 Button state tracking for edge detection
