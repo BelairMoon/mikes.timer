@@ -1,28 +1,37 @@
 // ===========================================================================
-// ⚡ DuoClock ESP32 Firmware — Dumb Serial Button Box
+// ⚡ DuoClock ESP32 Firmware — Serial Button & LED Controller
 // ===========================================================================
 //
-// This firmware runs on an ESP32 DevKit v1 and acts as a simple I/O bridge:
+// This firmware runs on an ESP32 DevKit v1 and acts as the DuoClock I/O
+// controller:
 //   - Reads two physical buttons (THEM and ME)
 //   - Sends button press events over USB serial to the Pi
 //   - Receives LED control commands from the Pi over serial
+//   - Tracks LED state and responds to status queries
+//   - Supports a reset command to turn off all LEDs
 //
-// ALL timer logic, logging, and intelligence lives on the Pi Zero W.
-// This firmware is intentionally minimal — it's just a hardware adapter.
+// Timer logic, logging, and intelligence lives on the Pi Zero W.
+// The ESP32 owns hardware state and can report it on request — this lets
+// the Pi recover cleanly after a reboot without orphaning lit LEDs.
 //
 // ┌────────────────────────────────────────────────────────────────┐
 // │                     SERIAL PROTOCOL                            │
 // │                                                                │
-// │  ESP32 → Pi (button events):                                  │
+// │  ESP32 → Pi:                                                  │
 // │    "T\n"        — THEM button pressed (falling edge only)     │
 // │    "M\n"        — ME button pressed (falling edge only)       │
 // │    "DUOCLOCK\n" — Device identification on boot               │
+// │    "ST0\n"/"ST1\n" — THEM LED state (response to S query)    │
+// │    "SM0\n"/"SM1\n" — ME LED state (response to S query)      │
+// │    "ROK\n"      — Acknowledge reset completed                 │
 // │                                                                │
-// │  Pi → ESP32 (LED commands):                                   │
+// │  Pi → ESP32:                                                  │
 // │    "T1\n" — Turn THEM (red) LED ON                            │
 // │    "T0\n" — Turn THEM (red) LED OFF                           │
 // │    "M1\n" — Turn ME (yellow) LED ON                           │
 // │    "M0\n" — Turn ME (yellow) LED OFF                          │
+// │    "S\n"  — Query current LED state (reply: ST#, SM#)         │
+// │    "R\n"  — Reset: turn off all LEDs, reply ROK               │
 // └────────────────────────────────────────────────────────────────┘
 //
 // 📌 Pin Map:
@@ -56,21 +65,59 @@ const int LED_ME   = 16;  // 🟡 ME LED output      (yellow, through resistor)
 bool lastBtnThem = true;  // Previous state of THEM button
 bool lastBtnMe   = true;  // Previous state of ME button
 
+// ---------------------------------------------------------------------------
+// 💡 LED state tracking
+// ---------------------------------------------------------------------------
+// Mirrors the physical LED state so we can report it back to the Pi on
+// request. This is essential for Pi reboot recovery — the Pi sends "S\n"
+// after reconnecting and we reply with the current state of each LED.
+// ---------------------------------------------------------------------------
+bool ledThem = false;
+bool ledMe   = false;
+
 // ===========================================================================
 // 📡 Process incoming serial commands from the Pi
 // ===========================================================================
-// Reads complete lines (terminated by \n) and maps them to LED states.
-// Case-insensitive: "T1", "t1" both work.
-// Unknown commands are silently ignored.
+// Reads complete lines (terminated by \n) and maps them to actions:
+//   T1/T0, M1/M0 — LED control (state tracked in ledThem/ledMe)
+//   S            — Status query: reply with current LED state
+//   R            — Reset: turn off all LEDs and acknowledge
+// Case-insensitive. Unknown commands are silently ignored.
 // ===========================================================================
 void processSerial() {
   while (Serial.available()) {
     String cmd = Serial.readStringUntil('\n');
     cmd.trim();
-    if (cmd == "T1" || cmd == "t1")      digitalWrite(LED_THEM, HIGH);
-    else if (cmd == "T0" || cmd == "t0") digitalWrite(LED_THEM, LOW);
-    else if (cmd == "M1" || cmd == "m1") digitalWrite(LED_ME, HIGH);
-    else if (cmd == "M0" || cmd == "m0") digitalWrite(LED_ME, LOW);
+
+    // --- LED control commands (track state for status queries) ---
+    if (cmd == "T1" || cmd == "t1") {
+      digitalWrite(LED_THEM, HIGH);
+      ledThem = true;
+    } else if (cmd == "T0" || cmd == "t0") {
+      digitalWrite(LED_THEM, LOW);
+      ledThem = false;
+    } else if (cmd == "M1" || cmd == "m1") {
+      digitalWrite(LED_ME, HIGH);
+      ledMe = true;
+    } else if (cmd == "M0" || cmd == "m0") {
+      digitalWrite(LED_ME, LOW);
+      ledMe = false;
+
+    // --- Status query: report current LED state back to Pi ---
+    } else if (cmd == "S" || cmd == "s") {
+      Serial.println(String("ST") + (ledThem ? "1" : "0"));
+      Serial.println(String("SM") + (ledMe ? "1" : "0"));
+
+    // --- Reset: turn off all LEDs and acknowledge ---
+    // Used by the Pi on reconnect or from the Settings menu reboot.
+    // Ensures no LEDs are left orphaned after a Pi restart.
+    } else if (cmd == "R" || cmd == "r") {
+      digitalWrite(LED_THEM, LOW);
+      digitalWrite(LED_ME, LOW);
+      ledThem = false;
+      ledMe = false;
+      Serial.println("ROK");
+    }
   }
 }
 
